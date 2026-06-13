@@ -27,7 +27,7 @@ jobs:
 
       - name: Fix expat version
         run: |
-          conda install -y -n r-reticulate -c conda-forge expat=2.6
+          conda install -y -n r-reticulate -c conda-forge pip expat=2.6
         shell: bash -l {0}
 
       - name: Install Python dependencies via Conda
@@ -39,7 +39,7 @@ jobs:
 
       - name: Install Python dependencies via pip
         run: |
-          conda run -n r-reticulate pip install pylahman patchworklib bs4 IPython
+          conda run -n r-reticulate python -m pip install pylahman patchworklib bs4 IPython
         shell: bash -l {0}
 
       - name: Set up R
@@ -65,7 +65,7 @@ jobs:
         run: |
           export RETICULATE_PYTHON=$(conda info --base)/envs/r-reticulate/bin/python
           quarto render
-          quarto render hw02.qmd --to ipynb
+          quarto render hw03.qmd --to ipynb
         shell: bash -l {0}
 
 # ... (기존 Quarto Render 단계 이후)

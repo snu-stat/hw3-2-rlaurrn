@@ -16,9 +16,7 @@ mainfont: "Noto Sans Korean Light"
 knitr::opts_chunk$set(echo = TRUE, eval = TRUE, warning = FALSE, message = FALSE, fig.width=6, fig.height=4, out.width = "70%", fig.align = "center", python.reticulate = TRUE)  
 options(knitr.table.format = "html")
 
-Sys.setenv(
-  RETICULATE_PYTHON = "C:/Users/sh/AppData/Local/r-miniconda/envs/introds/python.exe"
-)
+#Sys.setenv(RETICULATE_PYTHON = "C:/Users/sh/AppData/Local/r-miniconda/envs/introds/python.exe")
 
 library(reticulate)
 py_config()
@@ -109,7 +107,6 @@ from IPython.display import Markdown, Image, display
 import statsmodels.api as sm
 from scipy.stats import f
 from patsy.contrasts import Poly
-import lxml
 ```
 
 :::
