@@ -34,13 +34,13 @@ RUN conda create -n r-reticulate python=3.10 -y && \
     patsy \
     requests \
     beautifulsoup4 \
-    lxml \
-    patchworklib \
-    ipython \
     notebook \
     jupyterlab && \
     conda clean -afy
-RUN conda run -n r-reticulate pip install --no-cache-dir pylahman
+RUN conda run -n r-reticulate python -m pip install --no-cache-dir \
+    pylahman \
+    bs4 IPython \
+    patchworklib
 
 # 추가로 필요한 패키지 설치
 
