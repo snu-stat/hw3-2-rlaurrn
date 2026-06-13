@@ -28,7 +28,6 @@ RUN conda create -n r-reticulate python=3.10 -y && \
     plotnine \
     geopandas \
     networkx \
-    wquantiles \
     statsmodels \
     scipy \
     patsy \
@@ -38,7 +37,7 @@ RUN conda create -n r-reticulate python=3.10 -y && \
     jupyterlab && \
     conda clean -afy
 RUN conda run -n r-reticulate python -m pip install --no-cache-dir \
-    pylahman \
+    pylahman wquantiles \
     bs4 IPython \
     patchworklib
 
