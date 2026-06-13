@@ -25,10 +25,7 @@ jobs:
           activate-environment: r-reticulate
           channels: conda-forge,defaults
 
-      - name: Fix expat version
-        run: |
-          conda install -y -n r-reticulate -c conda-forge expat=2.6
-        shell: bash -l {0}
+      - name: Install pip and fix expat version run: | conda install -y -n r-reticulate -c conda-forge pip expat=2.6 shell: bash -l {0}
 
       - name: Upgrade pandas and lxml
         run: |
