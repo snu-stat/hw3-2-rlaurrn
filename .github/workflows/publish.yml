@@ -39,7 +39,7 @@ jobs:
 
       - name: Install Python dependencies via pip
         run: |
-          conda run -n r-reticulate python -m pip install pylahman patchworklib bs4 IPython
+          conda run -n r-reticulate pip install pylahman patchworklib bs4 IPython
         shell: bash -l {0}
 
       - name: Set up R
