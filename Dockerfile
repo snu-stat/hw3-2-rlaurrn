@@ -25,27 +25,7 @@ RUN conda tos accept --override-channels --channel https://repo.anaconda.com/pkg
 # 추가로 필요한 패키지 설치
 
 # 5. R 패키지 설치 (reticulate 및 필수 패키지)
-RUN R -e "install.packages( \
-    c( \
-      'reticulate', \
-      'remotes', \
-      'IRkernel', \
-      'ggplot2', \
-      'dplyr', \
-      'Lahman', \
-      'forcats', \
-      'tidyverse', \
-      'mosaicData', \
-      'lubridate', \
-      'scales', \
-      'googlesheets4', \
-      'rvest', \
-      'purrr', \
-      'NHANES', \
-      'patchwork' \
-    ), \
-    repos = 'https://cloud.r-project.org' \
-  )" && \
+RUN R -e "install.packages(c('reticulate', 'knitr', 'rmarkdown', 'tidyverse', 'NHANES', 'ggplot2', 'broom', 'dplyr', 'forcats', 'MASS', 'Lahman', 'IRkernel'))" && \
     R -e "IRkernel::installspec(user = FALSE)"
 # 추가로 필요한 패키지 설치
 
