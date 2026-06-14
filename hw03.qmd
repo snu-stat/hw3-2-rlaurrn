@@ -96,31 +96,6 @@ from scipy.stats import chi2
 from plotnine import *
 import statsmodels.formula.api as smf
 from scipy.special import gammaln
-
-
-# 
-# import pandas as pd
-# import polars as pl
-# import pylahman
-# import matplotlib.pyplot as plt
-# import numpy as np
-# import seaborn as sns
-# from plotnine import *
-# import geopandas
-# import networkx
-# import wquantiles
-# from statsmodels.graphics.mosaicplot import mosaic
-# import unicodedata
-# import re
-# import requests
-# from bs4 import BeautifulSoup
-# from io import StringIO
-# import patchworklib as pw
-# from functools import reduce
-# from IPython.display import Markdown, Image, display
-# import statsmodels.api as sm
-# from scipy.stats import f
-# from patsy.contrasts import Poly
 ```
 
 :::
