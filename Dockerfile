@@ -24,22 +24,11 @@ RUN conda create -n r-reticulate python=3.10 -y && \
     pandas \
     polars \
     matplotlib \
-    seaborn \
     plotnine \
-    geopandas \
-    networkx \
-    statsmodels \
-    scipy \
-    patsy \
-    requests \
-    beautifulsoup4 \
-    notebook \
-    jupyterlab && \
+    statsmodels && \
     conda clean -afy
 RUN conda run -n r-reticulate python -m pip install --no-cache-dir \
-    pylahman wquantiles \
-    bs4 IPython \
-    patchworklib
+    pylahman
 
 # 추가로 필요한 패키지 설치
 

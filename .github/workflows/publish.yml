@@ -34,12 +34,12 @@ jobs:
         run: |
           conda install -y -n r-reticulate -c conda-forge \
             python=3.10 \
-            numpy matplotlib polars seaborn plotnine geopandas networkx wquantiles requests statsmodels
+            numpy matplotlib polars plotnine statsmodels
         shell: bash -l {0}
 
       - name: Install Python dependencies via pip
         run: |
-          conda run -n r-reticulate python -m pip install pylahman patchworklib bs4 IPython
+          conda run -n r-reticulate python -m pip install pylahman 
         shell: bash -l {0}
 
       - name: Set up R

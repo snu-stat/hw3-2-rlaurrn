@@ -16,7 +16,7 @@ mainfont: "Noto Sans Korean Light"
 knitr::opts_chunk$set(echo = TRUE, eval = TRUE, warning = FALSE, message = FALSE, fig.width=6, fig.height=4, out.width = "70%", fig.align = "center", python.reticulate = TRUE)  
 options(knitr.table.format = "html")
 
-#Sys.setenv(RETICULATE_PYTHON = "C:/Users/sh/AppData/Local/r-miniconda/envs/introds/python.exe")
+Sys.setenv(RETICULATE_PYTHON = "C:/Users/sh/AppData/Local/r-miniconda/envs/introds/python.exe")
 
 library(reticulate)
 py_config()
@@ -85,28 +85,42 @@ library(patchwork)
 ## Python
 
 ```{python}
+import numpy as np
 import pandas as pd
+from scipy.optimize import curve_fit
+from scipy.stats import t
 import polars as pl
 import pylahman
-import matplotlib.pyplot as plt
-import numpy as np
-import seaborn as sns
-from plotnine import *
-import geopandas
-import networkx
-import wquantiles
-from statsmodels.graphics.mosaicplot import mosaic
-import unicodedata
-import re
-import requests
-from bs4 import BeautifulSoup
-from io import StringIO
-import patchworklib as pw
-from functools import reduce
-from IPython.display import Markdown, Image, display
 import statsmodels.api as sm
-from scipy.stats import f
-from patsy.contrasts import Poly
+from scipy.stats import chi2
+from plotnine import *
+import statsmodels.formula.api as smf
+from scipy.special import gammaln
+
+
+# 
+# import pandas as pd
+# import polars as pl
+# import pylahman
+# import matplotlib.pyplot as plt
+# import numpy as np
+# import seaborn as sns
+# from plotnine import *
+# import geopandas
+# import networkx
+# import wquantiles
+# from statsmodels.graphics.mosaicplot import mosaic
+# import unicodedata
+# import re
+# import requests
+# from bs4 import BeautifulSoup
+# from io import StringIO
+# import patchworklib as pw
+# from functools import reduce
+# from IPython.display import Markdown, Image, display
+# import statsmodels.api as sm
+# from scipy.stats import f
+# from patsy.contrasts import Poly
 ```
 
 :::
@@ -259,7 +273,89 @@ nls_result
 
 ```{python}
 #| label: 2.1.1-p
+_Teams = pylahman.Teams()  # pandas df
+Teams = pl.from_pandas(_Teams)
 
+TeamRuns = (
+    Teams
+    .filter(
+        (pl.col("yearID") >= 2010)
+        & (pl.col("yearID") <= 2025)
+        & (pl.col("yearID") != 2020)
+    )
+    .rename({"R": "RS"})
+    .with_columns(
+        [
+            (pl.col("W") / (pl.col("W") + pl.col("L"))).alias("WPct"),
+            (pl.col("RS") / pl.col("RA")).alias("run_ratio")
+        ]
+    )
+    .select(
+        [
+            "yearID", "teamID", "lgID",
+            "W", "L", "RS", "RA", "WPct", "run_ratio"
+        ]
+    )
+)
+
+def bill_james(run_ratio, k):
+    return 1 / (1 + (1 / run_ratio) ** k)
+
+nls_data = TeamRuns.drop_nulls(
+    subset=["WPct", "run_ratio"]
+)
+
+x_data = nls_data["run_ratio"].to_numpy()
+y_data = nls_data["WPct"].to_numpy()
+
+popt, pcov = curve_fit(
+    bill_james,
+    x_data,
+    y_data,
+    p0=[2]
+)
+
+k_hat = popt[0]
+
+y_hat = bill_james(x_data, k_hat)
+resid = y_data - y_hat
+
+n = len(y_data)
+p = len(popt)
+
+rss = np.sum(resid ** 2)
+rse = np.sqrt(rss / (n - p))
+
+se_k = np.sqrt(pcov[0, 0])
+t_crit = t.ppf(0.975, df=n - p)
+
+k_lower = k_hat - t_crit * se_k
+k_upper = k_hat + t_crit * se_k
+
+nls_result = pl.DataFrame(
+    {
+        "model": ["Nonlinear least squares"],
+        "parameter": ["k"],
+        "estimate": [k_hat],
+        "lower": [k_lower],
+        "upper": [k_upper]
+    }
+)
+
+summary_result = pl.DataFrame(
+    {
+        "parameter": ["k"],
+        "estimate": [k_hat],
+        "std_error": [se_k],
+        "t_value": [k_hat / se_k],
+        "rss": [rss],
+        "residual_std_error": [rse],
+        "df_residual": [n - p]
+    }
+)
+
+print(summary_result)
+print(nls_result)
 ```
 
 :::
@@ -315,7 +411,56 @@ comparison
 
 ```{python}
 #| label: 2.1.2-p
+TeamRuns = TeamRuns.with_columns(
+    (
+        pl.col("RS") / pl.col("RA")
+    )
+    .log()
+    .alias("log_run_ratio")
+)
 
+logit_model_data = (
+    TeamRuns
+    .drop_nulls(
+        subset=["W", "L", "log_run_ratio"]
+    )
+    .to_pandas()
+)
+
+y = logit_model_data[["W", "L"]]
+X = logit_model_data[["log_run_ratio"]]
+
+bill_james_logit = sm.GLM(
+    y,
+    X,
+    family=sm.families.Binomial(
+        link=sm.families.links.Logit()
+    )
+).fit()
+
+print(bill_james_logit.summary())
+
+conf_int = bill_james_logit.conf_int()
+
+logit_result = pl.DataFrame(
+    {
+        "model": ["Logistic regression"],
+        "parameter": ["beta_1"],
+        "estimate": [bill_james_logit.params["log_run_ratio"]],
+        "lower": [conf_int.loc["log_run_ratio", 0]],
+        "upper": [conf_int.loc["log_run_ratio", 1]]
+    }
+)
+
+comparison = pl.concat(
+    [
+        nls_result,
+        logit_result
+    ],
+    how="vertical"
+)
+
+print(comparison)
 ```
 
 :::
@@ -411,7 +556,85 @@ p2
 
 ```{python}
 #| label: 2.1.3-p
+deviance_check = pl.DataFrame(
+    {
+        "residual_deviance": [bill_james_logit.deviance],
+        "df": [bill_james_logit.df_resid],
+        "deviance_df_ratio": [
+            bill_james_logit.deviance / bill_james_logit.df_resid
+        ],
+        "p_value": [
+            chi2.sf(
+                bill_james_logit.deviance,
+                bill_james_logit.df_resid
+            )
+        ]
+    }
+)
 
+diagnostic_dat = logit_model_data.copy()
+
+diagnostic_dat["linear_predictor"] = bill_james_logit.predict(
+    X,
+    linear=True
+)
+
+diagnostic_dat["deviance_residual"] = bill_james_logit.resid_deviance
+
+diagnostic_dat["predicted_WPct"] = bill_james_logit.predict(
+    X
+)
+
+p1 = (
+    ggplot(
+        diagnostic_dat,
+        aes(
+            x="linear_predictor",
+            y="deviance_residual"
+        )
+    )
+    + geom_point(alpha=0.6)
+    + geom_hline(
+        yintercept=0,
+        linetype="dashed"
+    )
+    + geom_smooth(
+        se=False
+    )
+    + labs(
+        x="Linear predictor",
+        y="Deviance residual",
+        title="Deviance residuals vs. linear predictors"
+    )
+    + theme_minimal()
+)
+
+p2 = (
+    ggplot(
+        diagnostic_dat,
+        aes(
+            x="WPct",
+            y="predicted_WPct"
+        )
+    )
+    + geom_point(alpha=0.6)
+    + geom_abline(
+        intercept=0,
+        slope=1,
+        linetype="dashed"
+    )
+    + coord_equal()
+    + labs(
+        x="Observed WPct",
+        y="Predicted WPct",
+        title="Observed vs. predicted winning percentages"
+    )
+    + theme_minimal()
+)
+
+print(deviance_check)
+p1.show()
+p2.show()
 ```
 
 :::
@@ -419,6 +642,10 @@ p2
 - 잔차 이탈도는 180.0이고 잔차 자유도는 449이므로, 잔차 이탈도와 자유도의 비율은 약 0.401이다. 잔차 이탈도가 자유도보다 크지 않고 카이제곱 검정의 p-value도 거의 1이므로, 잔차 이탈도가 지나치게 크다는 증거는 없다. 따라서 이 진단을 기준으로는 모형 부적합의 증거가 발견되지 않았다.  
 - 이탈도 잔차와 선형 예측변수의 산점도에서 잔차는 전반적으로 0을 중심으로 분포한다. 평활선이 양 끝에서 다소 아래로 내려가는 약한 곡선 형태를 보이지만, 뚜렷한 체계적 패턴은 나타나지 않는다.  
 - 관측 승률과 예측 승률을 비교한 산점도에서는 대부분의 점이 y=x 직선 주변에 위치한다. 따라서 득실점 비율을 이용한 로지스틱 회귀모형은 실제 승률을 전반적으로 잘 설명한다고 판단할 수 있다.
+
+
+#### 4번
+
 
 ::: {.panel-tabset}
 
@@ -457,14 +684,74 @@ comparison_extended
 
 ```{python}
 #| label: 2.1.4-p
+TeamRuns = TeamRuns.with_columns(
+    [
+        pl.col("RA").log().alias("log_RA"),
+        pl.col("RS").log().alias("log_RS")
+    ]
+)
 
+separate_model_data = (
+    TeamRuns
+    .drop_nulls(
+        subset=["W", "L", "log_RA", "log_RS"]
+    )
+    .to_pandas()
+)
+
+y_separate = separate_model_data[["W", "L"]]
+X_separate = separate_model_data[["log_RA", "log_RS"]]
+
+bill_james_logit_separate = sm.GLM(
+    y_separate,
+    X_separate,
+    family=sm.families.Binomial(
+        link=sm.families.links.Logit()
+    )
+).fit()
+
+conf_int_separate = bill_james_logit_separate.conf_int()
+separate_result = pl.DataFrame(
+    {
+        "term": bill_james_logit_separate.params.index.to_list(),
+        "estimate": bill_james_logit_separate.params.to_numpy(),
+        "conf_low": conf_int_separate[0].to_numpy(),
+        "conf_high": conf_int_separate[1].to_numpy()
+    }
+)
+
+comparison_extended = pl.concat(
+    [
+        nls_result,
+        logit_result,
+        separate_result.select(
+            [
+                pl.lit(
+                    "Logistic regression with separate predictors"
+                ).alias("model"),
+                pl.col("term").replace(
+                    {
+                        "log_RA": "log(RA)",
+                        "log_RS": "log(RS)"
+                    }
+                ).alias("parameter"),
+                pl.col("estimate"),
+                pl.col("conf_low").alias("lower"),
+                pl.col("conf_high").alias("upper")
+            ]
+        )
+    ],
+    how="vertical"
+)
+
+print(comparison_extended)
 ```
 
 :::
 
 - log(RA)와 log(RS)를 각각 설명변수로 포함한 절편 없는 로지스틱 회귀모형을 적합한 결과, log(RA)의 회귀계수는 약 -1.75, log(RS)의 회귀계수는 약 1.75로 추정되었다.  
 - 두 계수는 절댓값이 거의 같고 부호만 반대이므로, 적합된 모형은 logit(WPct)≈1.75*log(RS/RA)로 정리할 수 있다.  
-- 이는 2번번에서 적합한 logit(WPct)=β_1*log(RS/RA) 모형과 사실상 동일한 형태이며, β_1=1.75와도 거의 일치한다.  
+- 이는 2번에서 적합한 logit(WPct)=β_1*log(RS/RA) 모형과 사실상 동일한 형태이며, β_1=1.75와도 거의 일치한다.  
 - 1번의 비선형 최소제곱 모형에서도 k=1.75로 추정되었으므로, 세 모형 모두 득점과 실점의 비율이 승률을 설명하는 핵심 변수라는 일관된 결과를 보여준다.  
 - 다만 비선형 최소제곱 모형과 로지스틱 회귀모형은 사용하는 추정 방법이 다르므로 신뢰구간은 약간 다르게 나타난다.
 
@@ -524,7 +811,180 @@ drop1(team_step, test = "Chisq")
 
 ```{python}
 #| label: 2.2-p
+team_model_data = (
+    Teams
+    .filter(
+        (pl.col("yearID") >= 2010)
+        & (pl.col("yearID") <= 2025)
+        & (pl.col("yearID") != 2020)
+    )
+    .rename({"R": "RS","2B": "X2B", "3B": "X3B"})
+    .with_columns(
+        [
+            (pl.col("W") / (pl.col("W") + pl.col("L"))).alias("WPct"),
+            pl.col("RS").log().alias("logRS"),
+            pl.col("RA").log().alias("logRA"),
+            (pl.col("W") + pl.col("L")).alias("n_games")
+        ]
+    )
+    .select(
+        [
+            "yearID", "teamID", "W", "L", "WPct", "RS", "RA",
+            "logRS", "logRA", "H", "X2B", "X3B", "HR", "BB", "SO",
+            "CS", "HBP", "SF", "ERA", "CG", "SHO", "IPouts",
+            "HA", "HRA", "BBA", "SOA", "E", "DP", "FP", "SV",
+            "n_games"
+        ]
+    )
+    .drop_nulls()
+)
 
+team_model_pd = team_model_data.to_pandas()
+team_model_pd["weights"] = team_model_pd["W"] + team_model_pd["L"]
+
+all_terms = [
+    "logRS", "logRA", "H", "X2B", "X3B", "HR", "BB", "SO",
+    "CS", "HBP", "SF", "ERA", "CG", "SHO", "IPouts",
+    "HA", "HRA", "BBA", "SOA", "E", "DP", "FP", "SV"
+]
+
+def make_X(data, terms):
+    if len(terms) == 0:
+        X = pd.DataFrame({"const": np.ones(len(data))}, index=data.index)
+    else:
+        X = data[terms].copy()
+        X = sm.add_constant(X, has_constant="add")
+    return X
+
+
+def r_binomial_loglik(fit, data):
+    W = data["W"].to_numpy()
+    L = data["L"].to_numpy()
+    n = W + L
+
+    mu = fit.fittedvalues
+    mu = np.clip(mu, 1e-12, 1 - 1e-12)
+
+    loglik = (
+        gammaln(n + 1)
+        - gammaln(W + 1)
+        - gammaln(L + 1)
+        + W * np.log(mu)
+        + L * np.log(1 - mu)
+    ).sum()
+
+    return loglik
+
+
+def r_like_aic(fit, data):
+    loglik = r_binomial_loglik(fit, data)
+    k = int(fit.df_model + 1)
+    return -2 * loglik + 2 * k
+
+
+def fit_glm(terms):
+    X = make_X(team_model_pd, terms)
+    y = team_model_pd[["W", "L"]]
+
+    model = sm.GLM(
+        y,
+        X,
+        family=sm.families.Binomial(link=sm.families.links.Logit())
+    )
+
+    fit = model.fit()
+    fit.r_like_aic = r_like_aic(fit, team_model_pd)
+    fit.terms = terms.copy()
+
+    return fit
+
+
+def step_aic(start_terms, scope_terms):
+    current_terms = start_terms.copy()
+    current_fit = fit_glm(current_terms)
+
+    anova_rows = [{
+        "Step": "Start",
+        "Df Resid.": current_fit.df_resid,
+        "Resid. Dev": current_fit.deviance,
+        "AIC": current_fit.r_like_aic
+    }]
+
+    while True:
+        candidates = []
+
+        for term in current_terms:
+            new_terms = [x for x in current_terms if x != term]
+            new_fit = fit_glm(new_terms)
+            candidates.append({
+                "action": f"- {term}",
+                "terms": new_terms,
+                "fit": new_fit,
+                "aic": new_fit.r_like_aic
+            })
+
+        for term in scope_terms:
+            if term not in current_terms:
+                new_terms = current_terms + [term]
+                new_fit = fit_glm(new_terms)
+                candidates.append({
+                    "action": f"+ {term}",
+                    "terms": new_terms,
+                    "fit": new_fit,
+                    "aic": new_fit.r_like_aic
+                })
+
+        best = min(candidates, key=lambda x: x["aic"])
+
+        if best["aic"] < current_fit.r_like_aic - 1e-7:
+            current_terms = best["terms"]
+            current_fit = best["fit"]
+
+            anova_rows.append({
+                "Step": best["action"],
+                "Df Resid.": current_fit.df_resid,
+                "Resid. Dev": current_fit.deviance,
+                "AIC": current_fit.r_like_aic
+            })
+        else:
+            break
+
+    return current_terms, current_fit, pd.DataFrame(anova_rows)
+
+
+selected_terms, team_step, team_step_anova = step_aic(all_terms, all_terms)
+
+selected_formula = "WPct ~ " + " + ".join(selected_terms)
+
+def drop1_chisq(final_terms, final_fit):
+    rows = []
+
+    for term in final_terms:
+        reduced_terms = [x for x in final_terms if x != term]
+        reduced_fit = fit_glm(reduced_terms)
+
+        dev_diff = reduced_fit.deviance - final_fit.deviance
+        df_diff = int(reduced_fit.df_resid - final_fit.df_resid)
+        p_value = chi2.sf(dev_diff, df_diff)
+
+        rows.append({
+            "term": term,
+            "Df": df_diff,
+            "Deviance": reduced_fit.deviance,
+            "AIC": reduced_fit.r_like_aic,
+            "LRT": dev_diff,
+            "Pr(>Chi)": p_value
+        })
+
+    return pd.DataFrame(rows)
+
+
+drop1_result = drop1_chisq(selected_terms, team_step)
+
+print(selected_formula)
+print(team_step_anova)
+print(team_step.summary())
+print(drop1_result)
 ```
 
 :::
@@ -545,6 +1005,8 @@ SHO의 p-value도 0.065로 0.05보다 컸으며, 제거 시 AIC는 2602.8로 증
 2.  `W`를 반응변수로 하여 문제2의 분석을 실시하되 음이항 회귀모형을 사용하라. 모형 적합 시 오류가 발생하면 이유를 파악해서 보고하라.
 
 ### 답안
+
+#### 4번
 
 ::: {.panel-tabset}
 
@@ -580,7 +1042,124 @@ drop1(team_poisson_step, test = "Chisq")
 
 ```{python}
 #| label: 2.3.1-p
+def make_X(data, terms):
+    if len(terms) == 0:
+        X = pd.DataFrame({"const": 1.0}, index=data.index)
+    else:
+        X = data[terms].copy()
+        X = sm.add_constant(X, has_constant="add")
+    return X
 
+
+def fit_poisson(terms):
+    X = make_X(team_model_pd, terms)
+    y = team_model_pd["W"]
+
+    model = sm.GLM(
+        y,
+        X,
+        family=sm.families.Poisson()
+    )
+
+    fit = model.fit()
+    fit.terms = terms.copy()
+
+    return fit
+
+team_poisson_full = fit_poisson(all_terms)
+
+def step_aic_poisson(start_terms, scope_terms):
+    current_terms = start_terms.copy()
+    current_fit = fit_poisson(current_terms)
+
+    anova_rows = [{
+        "Step": "Start",
+        "Df Resid.": current_fit.df_resid,
+        "Resid. Dev": current_fit.deviance,
+        "AIC": current_fit.aic
+    }]
+
+    while True:
+        candidates = []
+
+        for term in current_terms:
+            new_terms = [x for x in current_terms if x != term]
+            new_fit = fit_poisson(new_terms)
+
+            candidates.append({
+                "action": f"- {term}",
+                "terms": new_terms,
+                "fit": new_fit,
+                "aic": new_fit.aic
+            })
+
+        for term in scope_terms:
+            if term not in current_terms:
+                new_terms = current_terms + [term]
+                new_fit = fit_poisson(new_terms)
+
+                candidates.append({
+                    "action": f"+ {term}",
+                    "terms": new_terms,
+                    "fit": new_fit,
+                    "aic": new_fit.aic
+                })
+
+        best = min(candidates, key=lambda x: x["aic"])
+
+        if best["aic"] < current_fit.aic - 1e-7:
+            current_terms = best["terms"]
+            current_fit = best["fit"]
+
+            anova_rows.append({
+                "Step": best["action"],
+                "Df Resid.": current_fit.df_resid,
+                "Resid. Dev": current_fit.deviance,
+                "AIC": current_fit.aic
+            })
+        else:
+            break
+
+    return current_terms, current_fit, pd.DataFrame(anova_rows)
+poisson_selected_terms, team_poisson_step, team_poisson_step_anova = step_aic_poisson(
+    all_terms,
+    all_terms
+)
+
+poisson_selected_formula = "W ~ " + " + ".join(poisson_selected_terms)
+
+def drop1_poisson_chisq(final_terms, final_fit):
+    rows = []
+
+    for term in final_terms:
+        reduced_terms = [x for x in final_terms if x != term]
+        reduced_fit = fit_poisson(reduced_terms)
+
+        dev_diff = reduced_fit.deviance - final_fit.deviance
+        df_diff = int(reduced_fit.df_resid - final_fit.df_resid)
+        p_value = chi2.sf(dev_diff, df_diff)
+
+        rows.append({
+            "term": term,
+            "Df": df_diff,
+            "Deviance": reduced_fit.deviance,
+            "AIC": reduced_fit.aic,
+            "LRT": dev_diff,
+            "Pr(>Chi)": p_value
+        })
+
+    return pd.DataFrame(rows)
+
+
+poisson_drop1_result = drop1_poisson_chisq(
+    poisson_selected_terms,
+    team_poisson_step
+)
+
+print(poisson_selected_formula)
+print(team_poisson_step_anova)
+print(team_poisson_step.summary())
+print(poisson_drop1_result)
 ```
 
 :::
@@ -592,6 +1171,9 @@ AIC를 기준으로 단계별 변수선택을 적용한 결과, logRS, ERA, CG, 
 따라서 모형의 간결성을 고려하여 CG와 E를 제거한 W ~ logRS + ERA + SV 모형을 최종 후보로 고려할 수 있다.두 변수를 함께 제거한 모형과 기존 모형을 우도비 검정으로 비교한 뒤, 적합도가 유의하게 나빠지지 않으면 간결한 모형을 최종 모형으로 선택한다.  
 
 문제 1의 모형은 득점 수와 실점 수의 비율을 이용하여 승률을 설명한다. 이번 포아송 회귀모형에서도 득점 수가 많을수록 기대 승리 횟수가 증가하고, ERA가 높을수록 기대 승리 횟수가 감소하는 것으로 나타났다.
+
+
+#### 2번
 
 ::: {.panel-tabset}
 
@@ -614,12 +1196,18 @@ summary(team_nb_full)
 
 ```{python}
 #| label: 2.3.2-p
+team_nb_full = sm.NegativeBinomial(
+    team_model_pd["W"],
+    make_X(team_model_pd, all_terms),
+    loglike_method="nb2"
+).fit()
 
+print(team_nb_full.summary())
 ```
 
 :::
 
-음이항 회귀모형을 적합한 결과, theta와 theta의 표준오차는 매우 크게 추정되었다. 또한 theta를 추정하는 과정에서 반복 횟수 제한에 도달했다는 경고 메시지가 발생하였다.  
+음이항 회귀모형을 적합한 결과, theta와 theta의 표준오차가 매우 크게 추정되었다. 또한 theta를 추정하는 과정에서 반복 횟수 제한에 도달했다는 경고 메시지가 발생하였다.  
 
 음이항분포의 분산은 Var(Y) = mu + mu^2 / theta로 주어진다. theta가 매우 커지면 mu^2 / theta가 0에 가까워지므로, 음이항 회귀모형의 분산은 포아송 회귀모형의 분산인 mu에 가까워진다. 따라서 현재 결과는 자료에서 과산포를 뒷받침하는 증거가 부족하여 theta가 유한한 값으로 안정적으로 추정되지 않았음을 의미한다. 앞에서 적합한 포아송 회귀모형에서도 잔차 이탈도와 잔차 자유도의 비율이 62.294 / 444 = 0.140으로 1보다 훨씬 작게 나타났다.  
 
@@ -681,7 +1269,47 @@ confint(era_fit)
 
 ```{python}
 #| label: 2.4-p
+era_data = (
+    Teams
+    .filter(
+        (
+            ((pl.col("yearID") >= 1994) & (pl.col("yearID") <= 2005))
+            |
+            ((pl.col("yearID") >= 2010) & (pl.col("yearID") <= 2025))
+        )
+        &
+        (pl.col("yearID") != 2020)
+    )
+    .rename({"R": "RS"})
+    .with_columns(
+        [
+            (pl.col("W") / (pl.col("W") + pl.col("L"))).alias("WPct"),
+            (
+                pl.when((pl.col("yearID") >= 1994) & (pl.col("yearID") <= 2005))
+                .then(1)
+                .otherwise(0)
+            ).alias("steroid"),
+            (pl.col("RS") / pl.col("RA")).log().alias("log_run_ratio")
+        ]
+    )
+    .with_columns(
+        (pl.col("steroid") * pl.col("log_run_ratio")).alias("steroid_log_run_ratio")
+    )
+)
 
+era_pd = era_data.to_pandas()
+
+X_era = era_pd[["log_run_ratio", "steroid_log_run_ratio"]]
+y_era = era_pd[["W", "L"]]
+
+era_fit = sm.GLM(
+    y_era,
+    X_era,
+    family=sm.families.Binomial()
+).fit()
+
+print(era_fit.summary())
+print(era_fit.conf_int())
 ```
 
 :::
