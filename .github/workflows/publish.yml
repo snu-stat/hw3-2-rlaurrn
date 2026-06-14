@@ -69,9 +69,14 @@ jobs:
           quarto render hw03.qmd --to ipynb
         shell: bash -l {0}
 
+      - name: Prepare Binder files
+        run: |
+          cp _site/hw03.ipynb hw03.ipynb
+          cp Dockerfile _site/Dockerfile
+
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
-
+        timeout-minutes: 60
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./_site
