@@ -71,8 +71,8 @@ jobs:
 
       - name: Prepare Binder files
         run: |
-          cp hw03.ipynb _site/
-          cp Dockerfile _site/
+          cp _site/hw03.ipynb hw03.ipynb
+          cp Dockerfile _site/Dockerfile
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
