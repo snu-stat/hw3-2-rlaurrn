@@ -16,7 +16,7 @@ mainfont: "Noto Sans Korean Light"
 knitr::opts_chunk$set(echo = TRUE, eval = TRUE, warning = FALSE, message = FALSE, fig.width=6, fig.height=4, out.width = "70%", fig.align = "center", python.reticulate = TRUE)  
 options(knitr.table.format = "html")
 
-#Sys.setenv(RETICULATE_PYTHON = "C:/Users/sh/AppData/Local/r-miniconda/envs/introds/python.exe")
+Sys.setenv(RETICULATE_PYTHON = "C:/Users/sh/AppData/Local/r-miniconda/envs/introds/python.exe")
 
 library(reticulate)
 py_config()
@@ -172,13 +172,6 @@ smoking_final <- MASS::stepAIC(
 
 summary(smoking_final)
 drop1(smoking_final, test = "Chisq")
-
-exp(
-  cbind(
-    OR = coef(smoking_final),
-    confint(smoking_final)
-  )
-)
 ```
 
 ## Python
@@ -186,9 +179,158 @@ exp(
 ```{python}
 #| label: 1-p
 
+NHANES = pl.read_csv('data/NHANES.csv',
+    schema_overrides={
+        "Age": pl.Float64, 
+        "BMI": pl.Float64
+    },
+    null_values=["NA", " ", "null"] 
+)
+
+smoking = (
+    NHANES
+    .filter(pl.col("Age") >= 20)
+    .with_columns(
+        pl.when(pl.col("Smoke100") == "No")
+        .then(pl.lit("No"))
+        .when(pl.col("Smoke100") == "Yes")
+        .then(pl.col("SmokeNow").cast(pl.Utf8))
+        .otherwise(None)
+        .alias("CurrentSmoker")
+    )
+)
+
+smoking_model_data = (
+    smoking
+    .select([
+        "CurrentSmoker", "SurveyYr", "Gender", "Age",
+        "Race1", "Education", "Poverty", "BMI"
+    ])
+    .drop_nulls()
+)
+
+smoking_pd = smoking_model_data.to_pandas()
+
+smoking_pd["CurrentSmoker"] = pd.Categorical(
+    smoking_pd["CurrentSmoker"],
+    categories=["No", "Yes"]
+)
+
+smoking_pd["CurrentSmoker_bin"] = (
+    smoking_pd["CurrentSmoker"] == "Yes"
+).astype(int)
+
+full_terms = [
+    "C(SurveyYr)",
+    "C(Gender)",
+    "Age",
+    "C(Race1)",
+    "C(Education)",
+    "Poverty",
+    "BMI"
+]
+
+def fit_logistic(terms):
+    rhs = " + ".join(terms)
+    formula = f"CurrentSmoker_bin ~ {rhs}"
+    model = smf.glm(
+        formula=formula,
+        data=smoking_pd,
+        family=sm.families.Binomial()
+    )
+    fit = model.fit()
+    fit.terms = terms.copy()
+    fit.formula_string = formula
+    return fit
+
+smoking_full = fit_logistic(full_terms)
+
+def step_aic_backward(start_terms):
+    current_terms = start_terms.copy()
+    current_fit = fit_logistic(current_terms)
+
+    anova_rows = [{
+        "Step": "Start",
+        "Df Resid.": current_fit.df_resid,
+        "Resid. Dev": current_fit.deviance,
+        "AIC": current_fit.aic
+    }]
+
+    while True:
+        candidates = []
+
+        for term in current_terms:
+            new_terms = [x for x in current_terms if x != term]
+            new_fit = fit_logistic(new_terms)
+
+            candidates.append({
+                "action": f"- {term}",
+                "terms": new_terms,
+                "fit": new_fit,
+                "aic": new_fit.aic
+            })
+
+        best = min(candidates, key=lambda x: x["aic"])
+
+        if best["aic"] < current_fit.aic - 1e-7:
+            current_terms = best["terms"]
+            current_fit = best["fit"]
+
+            anova_rows.append({
+                "Step": best["action"],
+                "Df Resid.": current_fit.df_resid,
+                "Resid. Dev": current_fit.deviance,
+                "AIC": current_fit.aic
+            })
+        else:
+            break
+
+    return current_terms, current_fit, pd.DataFrame(anova_rows)
+  
+smoking_selected_terms, smoking_final, smoking_step_anova = step_aic_backward(full_terms)
+
+def drop1_logistic_chisq(final_terms, final_fit):
+    rows = []
+
+    for term in final_terms:
+        reduced_terms = [x for x in final_terms if x != term]
+        reduced_fit = fit_logistic(reduced_terms)
+
+        dev_diff = reduced_fit.deviance - final_fit.deviance
+        df_diff = int(reduced_fit.df_resid - final_fit.df_resid)
+        p_value = chi2.sf(dev_diff, df_diff)
+
+        rows.append({
+            "term": term,
+            "Df": df_diff,
+            "Deviance": reduced_fit.deviance,
+            "AIC": reduced_fit.aic,
+            "LRT": dev_diff,
+            "Pr(>Chi)": p_value
+        })
+
+    return pd.DataFrame(rows)
+
+smoking_drop1 = drop1_logistic_chisq(
+    smoking_selected_terms,
+    smoking_final
+)
+
+print(smoking_final.summary())
+print(smoking_drop1)
 ```
 
 :::
+
+현재 흡연 여부를 종속변수로 하고, 조사연도, 성별, 나이, 인종, 교육수준, 빈곤도, BMI를 설명변수로 하는 로지스틱 회귀모형을 적합하였다. 종속변수는 현재 흡연자 여부이며, 계수는 현재 흡연자일 오즈에 대한 효과로 해석된다.
+
+모형 적합 결과, 성별, 나이, 인종, 교육수준, 빈곤도, BMI는 현재 흡연 여부와 유의한 관련이 있는 것으로 나타났다. 남성의 계수는 양수이므로 여성에 비해 현재 흡연자일 오즈가 더 높다. 반면 나이의 계수는 음수이므로 나이가 많을수록 현재 흡연자일 오즈는 감소한다.
+
+인종 변수에서는 기준집단에 비해 Hispanic과 Mexican 집단의 현재 흡연 오즈가 유의하게 낮았다. 교육수준의 경우, College Grad의 계수가 크게 음수로 나타나 교육수준이 높은 집단에서 현재 흡연 오즈가 낮은 경향을 보였다. 또한 Poverty와 BMI의 계수도 음수이며 유의하므로, 빈곤도 지표와 BMI가 증가할수록 현재 흡연자일 오즈가 감소하는 것으로 해석된다.
+
+drop1 검정 결과, Gender, Age, Race1, Education, Poverty, BMI는 모두 제거했을 때 deviance가 유의하게 증가하므로 모형에 중요한 변수로 판단된다. SurveyYr는 p-value가 약 0.111로 통계적으로 유의하지 않았지만, AIC가 최종모형보다 약간 증가하므로 stepAIC 결과에서는 제거되지 않았다.
+
+따라서 최종 모형은 조사연도, 성별, 나이, 인종, 교육수준, 빈곤도, BMI를 모두 포함하는 모형이며, 이 중 조사연도를 제외한 대부분의 변수는 현재 흡연 여부를 설명하는 데 유의한 영향을 가지는 것으로 볼 수 있다.
 
 # 2부  데이터 분석 실무
 
